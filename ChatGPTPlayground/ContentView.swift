@@ -9,30 +9,43 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var answer = ""
-    @State private var isLoading = false
     @State private var inputedText = ""
+    @State private var messages: [[String: String]] = []
     
     var body: some View {
+        List(messages, id: \.self) { message in
+            if message["role"] == "user" {
+                Section {
+                    HStack {
+                        Spacer()
+                        Text(message["content"] ?? "")
+                    }
+                }
+            } else {
+                Section {
+                    HStack {
+                        Text(message["content"] ?? "")
+                        Spacer()
+                    }
+                }
+            }
+        }
         ZStack {
-            VStack(alignment: .center) {
+            HStack() {
                 TextField("Input your question", text: $inputedText)
+                Spacer()
                 Button("Request", action: request)
-                Text(answer)
             }
             .padding()
-            if isLoading {
-                LoadingView()
-                    .edgesIgnoringSafeArea(.all)
-            }
         }
     }
     
     private func request() {
+        messages.append(["role": "user",
+                         "content": inputedText])
+        messages.append(["role": "assistant",
+                         "content": "考えてます…"])
         Task {
-            defer {
-                isLoading = false
-            }
-            isLoading = true
             let url = URL(string: "https://api.openai.com/v1/chat/completions")!
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
@@ -40,20 +53,19 @@ struct ContentView: View {
             request.allHTTPHeaderFields = ["Authorization": "Bearer $OPENAI_API_KEY"]
             let body: [String: Any] = [
                 "model": "gpt-3.5-turbo",
-                "messages": [
-                    ["role": "user",
-                    "content": inputedText],
-                ],
+                "messages": messages,
                 "temperature": 0.7,
             ]
             let httpBody = try! JSONSerialization.data(withJSONObject: body, options: [])
             request.httpBody = httpBody
-            let (data, response) = try await URLSession.shared.data(for: request)
-            let object = try JSONSerialization.jsonObject(with: data, options: [])
+            let (data, _) = try await URLSession.shared.data(for: request)
             do {
                 let gptResponse = try JSONDecoder().decode(GPTResponse.self, from: data)
-                print(gptResponse)
-                answer = gptResponse.choices.first?.message.content ?? ""
+                _ = messages.removeLast()
+                answer = gptResponse.choices.last?.message.content ?? ""
+                messages.append(["role": "assistant",
+                                 "content": answer])
+                inputedText = ""
             } catch {
                 print(error.localizedDescription)
             }
@@ -84,20 +96,5 @@ struct GPTResponseMessage: Codable {
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         ContentView()
-    }
-}
-
-struct LoadingView: View {
-    var body: some View {
-        VStack {
-            Text("Wait for gpt...")
-                .fontWeight(.bold)
-                .foregroundColor(.white)
-                .font(.title)
-            ProgressView()
-                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-        }
-        .frame(maxWidth: .greatestFiniteMagnitude, maxHeight: .greatestFiniteMagnitude)
-        .background(Color.gray.opacity(0.6))
     }
 }
